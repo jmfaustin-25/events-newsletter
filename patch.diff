@@ -1,0 +1,391 @@
+diff --git a/events_newsletter_generator.py b/events_newsletter_generator.py
+index 1111111..2222222 100755
+--- a/events_newsletter_generator.py
++++ b/events_newsletter_generator.py
+@@ -23,7 +23,7 @@ Requirements:
+ import argparse
+ import json
+ import os
+ import re
+ import glob
+ from pathlib import Path
+ from datetime import datetime, timedelta
+ from dateutil import parser as date_parser
+-from typing import Optional, List, Dict
++from typing import Optional, List, Dict
+ import feedparser
+ import requests
+ from anthropic import Anthropic
+ 
+@@ -86,6 +86,49 @@ WRITING_STYLE = """
+ - "The move comes amid..." not "In exciting news..."
+ - "Industry observers note..." not "Everyone is talking about..."
+ - "The appointment suggests a strategic shift toward..." not "Great hire!"
+ """
+ 
++# =============================================================================
++# BOARD-LEVEL FILTERING & PRIORITISATION (Stage 1)
++# =============================================================================
++
++FILTERING_SPEC = """
++AI BRIEF: ARTICLE FILTERING & PRIORITISATION (BOARD-LEVEL)
++
++Role:
++- You are a senior industry intelligence analyst.
++Audience:
++- PE investors, board directors, CEOs, corp dev leaders in global B2B media & live events.
++
++Objective:
++- Filter and prioritise only articles that reveal structural change or economically meaningful shifts.
++- Focus on implications for capital allocation, valuation, strategy, revenue quality, margins, or risk.
++Exclude:
++- Product launches, vendor marketing, event-tech hype, tactical “how-to”, generic macro with no industry transmission.
++
++Core Analytical Lenses (article must fit at least one):
++1) Macro & Capital
++2) Formats & Attention
++3) Geography & Exposure
++4) Pricing, Yield & Revenue Quality
++5) Portfolio Strategy & M&A
++6) Cost Structure & Operating Leverage
++
++Mandatory questions:
++- What is the signal?
++- Why does this matter economically?
++- Who is affected?
++- Structural or cyclical?
++- What board-level question does it raise?
++
++Scoring (/25): 0–5 each:
++- Strategic relevance
++- Economic impact
++- Decision usefulness
++- Signal strength
++- Transferability
++
++Interpretation:
++- 20–25 Must include
++- 14–19 Include if space allows
++- <14 Exclude
++"""
++
+ # Section definitions
+ SECTIONS = {
+     "market_signals": {
+@@ -345,6 +388,141 @@ def load_user_sources(sources_folder: str) -> list:
+     print(f"  ✓ Loaded {len(articles)} user-provided sources")
+     return articles
+ 
+ 
++def filter_and_score_articles(
++    articles: list,
++    api_key: Optional[str] = None,
++    custom_instructions: Optional[str] = None,
++    max_articles_in_prompt: int = 60
++) -> List[Dict]:
++    """
++    Stage 1: Filter + score articles using the board-level lens in FILTERING_SPEC.
++    Returns a ranked shortlist enriched with original article metadata.
++    """
++
++    if not api_key:
++        api_key = os.environ.get("ANTHROPIC_API_KEY")
++    if not api_key:
++        raise ValueError("ANTHROPIC_API_KEY not found.")
++
++    if not custom_instructions:
++        custom_instructions = os.environ.get("EXTRA_PROMPT", "")
++
++    client = Anthropic(api_key=api_key)
++
++    # Prepare articles for Claude
++    articles_text = ""
++    for i, article in enumerate(articles[:max_articles_in_prompt]):
++        user_flag = " [USER-PROVIDED SOURCE - PRIORITIZE]" if article.get('from_user_sources') else ""
++        articles_text += f"""
++---
++[Article {i+1}]{user_flag}
++Source: {article['source']}
++Title: {article['title']}
++Published: {article['published']}
++Link: {article['link']}
++Content: {article['content'][:900]}
++---
++"""
++
++    prompt = f"""You are the research desk for a board-level intelligence newsletter in global B2B media & live events.
++
++{FILTERING_SPEC}
++
++{f"SPECIAL EDITORIAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
++
++ARTICLES:
++{articles_text}
++
++TASK:
++1) Exclude anything that does not meet the inclusion criteria.
++2) For each INCLUDED article:
++   - Assign ONE primary lens from the six.
++   - Write why_it_matters (2–3 sentences; implications only, not a summary).
++   - Write board_question (1 sentence).
++   - Score each dimension 0–5 and provide total /25.
++3) Rank included articles by:
++   - total_score desc,
++   - then user_provided first,
++   - then recency.
++
++OUTPUT:
++Return ONLY valid JSON in exactly this structure:
++{{
++  "included": [
++    {{
++      "article_index": 1,
++      "primary_lens": "Pricing, Yield & Revenue Quality",
++      "why_it_matters": "...",
++      "board_question": "...",
++      "scores": {{
++        "strategic_relevance": 0,
++        "economic_impact": 0,
++        "decision_usefulness": 0,
++        "signal_strength": 0,
++        "transferability": 0,
++        "total": 0
++      }},
++      "include_tier": "must_include|space_allows",
++      "notes": "Optional: 1 short sentence on what to watch next"
++    }}
++  ]
++}}
++
++Rules:
++- Do not invent facts not present in the article snippet.
++- If unsure, state assumptions briefly in notes.
++- Aim for 8–20 included items if available; otherwise include fewer.
++"""
++
++    print("  Stage 1: Filtering and scoring articles (board-level lens)...")
++
++    response = client.messages.create(
++        model="claude-sonnet-4-20250514",
++        max_tokens=4500,
++        messages=[{"role": "user", "content": prompt}]
++    )
++
++    response_text = response.content[0].text
++
++    try:
++        json_match = re.search(r'\{[\s\S]*\}', response_text)
++        result = json.loads(json_match.group() if json_match else response_text)
++    except json.JSONDecodeError as e:
++        print(f"  ⚠️  JSON parse error (Stage 1): {e}")
++        print(f"  Response preview: {response_text[:500]}")
++        raise
++
++    included = result.get("included", [])
++
++    # Enrich included items with original article metadata
++    enriched = []
++    for item in included:
++        idx = int(item.get("article_index", 1)) - 1
++        if 0 <= idx < len(articles):
++            a = articles[idx]
++            scores = item.get("scores", {})
++            enriched.append({
++                **item,
++                "title": a.get("title", ""),
++                "source": a.get("source", ""),
++                "link": a.get("link", ""),
++                "published": a.get("published", ""),
++                "pub_timestamp": a.get("pub_timestamp", 0),
++                "from_user_sources": a.get("from_user_sources", False),
++                "total_score": int(scores.get("total", 0)),
++            })
++
++    enriched.sort(
++        key=lambda x: (
++            -x.get("total_score", 0),
++            0 if x.get("from_user_sources") else 1,
++            -x.get("pub_timestamp", 0),
++        )
++    )
++
++    print(f"  ✓ Stage 1 shortlisted {len(enriched)} articles")
++    return enriched
++
++
+ def categorize_and_write_newsletter(
+-    articles: list, 
++    articles: list,
+     api_key: Optional[str] = None,
+     custom_instructions: Optional[str] = None,
+     stories_per_section: int = 3
+ ) -> dict:
+-    """Use Claude to categorize articles and write newsletter sections."""
++    """Stage 2: Use Claude to write newsletter sections from a shortlisted set."""
+     
+     if not api_key:
+         api_key = os.environ.get("ANTHROPIC_API_KEY")
+@@ -365,29 +543,30 @@ def categorize_and_write_newsletter(
+     
+     client = Anthropic(api_key=api_key)
+     
+-    # Prepare articles for Claude
++    # Prepare shortlisted items for Claude (include lens + scores for prioritisation)
+     articles_text = ""
+-    for i, article in enumerate(articles[:60]):  # Limit to prevent token overflow
+-        user_flag = " [USER-PROVIDED SOURCE - PRIORITIZE]" if article.get('from_user_sources') else ""
++    for i, article in enumerate(articles[:30]):  # shortlist should already be filtered
++        user_flag = " [USER-PROVIDED SOURCE - PRIORITIZE]" if article.get('from_user_sources') else ""
+         articles_text += f"""
+ ---
+-[Article {i+1}]{user_flag}
++[Shortlist {i+1}]{user_flag}
+ Source: {article['source']}
+-Title: {article['title']}
++Title: {article.get('title', article.get('headline', 'Untitled'))}
+ Published: {article['published']}
+ Link: {article['link']}
+-Content: {article['content'][:1000]}
++PrimaryLens: {article.get('primary_lens', '')}
++ScoreTotal: {article.get('total_score', '')}/25
++WhyItMatters: {article.get('why_it_matters', '')}
++BoardQuestion: {article.get('board_question', '')}
+ ---
+ """
+     
+     # Build section descriptions for prompt
+@@ -404,11 +583,11 @@ def categorize_and_write_newsletter(
+ {WRITING_STYLE}
+ 
+ YOUR TASK:
+-Analyze the provided articles and produce a newsletter with three sections. For each section, select the most significant stories and write them in FT/Economist editorial style.
++Using ONLY the shortlisted items, produce a newsletter with three sections. For each section, select the most significant stories and write them in FT/Economist editorial style.
+ 
+ SECTIONS TO PRODUCE:
+ {sections_desc}
+ 
+ IMPORTANT RULES:
+ 1. USER-PROVIDED SOURCES (marked with [USER-PROVIDED SOURCE]) should be prioritized - the editor specifically collected these
+ 2. Each section should have {stories_per_section} main stories (if enough quality content exists)
+-3. Include 2-4 "In Brief" items per section for lesser stories worth noting
+-4. If a story doesn't clearly fit a section, use your judgment or skip it
+-5. Avoid duplicating the same story across sections
+-6. Write headlines that are informative, not clickbait
+-7. Summaries should be 2-3 short paragraphs analyzing the strategic significance
++3. If a story doesn't clearly fit a section, use your judgment or skip it
++4. Avoid duplicating the same story across sections
++5. Write headlines that are informative, not clickbait
++6. Summaries should be 2-3 short paragraphs analyzing the strategic significance
+ 
+ {f"SPECIAL EDITORIAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
+ 
+-ARTICLES TO ANALYZE:
++SHORTLISTED ITEMS TO ANALYZE:
+ {articles_text}
+ 
+ Respond with valid JSON in this exact structure:
+ {{
+     "intro": "A 2-3 sentence editorial overview of this period's key themes and what they signal for the industry",
+     "sections": {{
+         "market_signals": {{
+             "stories": [
+                 {{
+-                    "article_index": 1,
++                    "shortlist_index": 1,
+                     "headline": "Strategic, informative headline",
+                     "summary": "2-3 paragraph analysis in FT style. Focus on strategic implications.",
+                     "sub_theme": "Macro Economy",
+                     "why_selected": "Brief editorial note on significance"
+                 }}
+             ]
+         }},
+         "deals": {{
+             "stories": [...]
+         }},
+         "hires_fires": {{
+             "stories": [...]
+         }}
+     }}
+ }}
+ 
+ IMPORTANT: For market_signals stories, you MUST include "sub_theme" field with either "Macro Economy" or "Consumer Trends".
+ Do NOT include any "briefs" or "in brief" items - only main stories.
+ If a section has no relevant stories, use empty arrays.
+ Return ONLY valid JSON, no other text."""
+@@ -450,7 +629,7 @@ def categorize_and_write_newsletter(
+         enriched_stories = []
+         for story in section_data.get("stories", []):
+-            idx = story.get("article_index", 1) - 1
++            idx = story.get("shortlist_index", 1) - 1
+             if 0 <= idx < len(articles):
+                 original = articles[idx]
+                 enriched_story = {
+-                    "headline": story.get("headline", original["title"]),
+-                    "summary": story.get("summary", original["content"]),
++                    "headline": story.get("headline", original.get("title", "")),
++                    "summary": story.get("summary", ""),
+                     "source": original["source"],
+                     "link": original["link"],
+                     "published": original["published"]
+                 }
+                 # Add sub_theme if present (for market_signals)
+@@ -507,25 +686,34 @@ def generate_newsletter(
+     
+     feeds = custom_feeds or RSS_FEEDS
+     
+     print("\n" + "=" * 60)
+     print("📰 B2B TRADE PRESS & EVENTS NEWSLETTER GENERATOR")
+     print("=" * 60)
+     
+     # Step 1: Fetch RSS articles
+-    print(f"\n[1/4] Fetching articles from {len(feeds)} RSS sources...")
++    print(f"\n[1/5] Fetching articles from {len(feeds)} RSS sources...")
+     articles = fetch_feeds(feeds, days_back)
+     
+     # Step 2: Load user sources
+     if sources_folder:
+-        print(f"\n[2/4] Loading user-provided sources...")
++        print(f"\n[2/5] Loading user-provided sources...")
+         user_articles = load_user_sources(sources_folder)
+         articles = user_articles + articles  # Prioritize user sources
+     else:
+-        print(f"\n[2/4] No user sources folder specified, skipping...")
++        print(f"\n[2/5] No user sources folder specified, skipping...")
+     
+     print(f"\n  Total articles to analyze: {len(articles)}")
+     
+     if not articles:
+         return "No articles found. Check RSS feeds and sources folder."
+     
+-    # Step 3: Categorize and write with Claude
+-    print(f"\n[3/4] Writing newsletter with Claude...")
+-    content = categorize_and_write_newsletter(
+-        articles, 
+-        api_key,
+-        stories_per_section=stories_per_section
+-    )
++    # Step 3: Filter + score with board-level lens
++    print(f"\n[3/5] Filtering + scoring articles (board-level lens)...")
++    shortlist = filter_and_score_articles(articles, api_key=api_key)
++    if not shortlist:
++        return "No articles passed the board-level filter this period."
++
++    # Step 4: Write newsletter from shortlist
++    print(f"\n[4/5] Writing newsletter with Claude from shortlist...")
++    content = categorize_and_write_newsletter(shortlist, api_key, stories_per_section=stories_per_section)
+     
+     # Count stories
+     total_stories = sum(len(s.get("stories", [])) for s in content["sections"].values())
+-    total_briefs = sum(len(s.get("briefs", [])) for s in content["sections"].values())
+-    print(f"  ✓ Generated {total_stories} main stories + {total_briefs} briefs")
++    print(f"  ✓ Generated {total_stories} main stories")
+     
+     # Step 4: Render newsletter
+-    print(f"\n[4/4] Rendering {output_format.upper()} newsletter...")
++    print(f"\n[5/5] Rendering {output_format.upper()} newsletter...")
+     newsletter = render_newsletter(content, output_format, title, footer_text)
+     print(f"  ✓ Newsletter complete ({len(newsletter):,} characters)")
+     
+     print("\n" + "=" * 60)
+     print("✅ DONE!")
+     print("=" * 60 + "\n")
