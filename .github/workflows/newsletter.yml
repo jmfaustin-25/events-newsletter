@@ -2,7 +2,6 @@ name: Events Industry Newsletter (with Approval)
 
 on:
   schedule:
-    # Every Monday at 7:00 AM UTC
     - cron: '0 7 * * 1'
   
   workflow_dispatch:
@@ -30,29 +29,20 @@ on:
         description: 'Editorial instructions for Claude'
         required: false
         default: ''
-        type: string
       
       focus_section:
-        description: 'Section to emphasize (or "all")'
+        description: 'Section to emphasize'
         required: false
         default: 'all'
         type: choice
-        options:
-          - 'all'
-          - 'market_signals'
-          - 'deals'
-          - 'hires_fires'
+        options: ['all', 'market_signals', 'deals', 'hires_fires']
       
       regenerate_feedback:
         description: 'If regenerating - what to change'
         required: false
         default: ''
-        type: string
 
 jobs:
-  # ===========================================
-  # JOB 1: Generate newsletter draft
-  # ===========================================
   generate-draft:
     runs-on: ubuntu-latest
     outputs:
@@ -70,38 +60,19 @@ jobs:
       - name: Install dependencies
         run: pip install anthropic feedparser requests python-dateutil jinja2 beautifulsoup4
       
-      - name: Show parameters
-        run: |
-          echo "## 🔧 Generation Parameters" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Days back | ${{ github.event.inputs.days_back || '7' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Stories per section | ${{ github.event.inputs.stories_per_section || '3' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Title | ${{ github.event.inputs.newsletter_title || 'Events Industry Intelligence' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Focus | ${{ github.event.inputs.focus_section || 'all' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Custom instructions | ${{ github.event.inputs.custom_instructions || '(none)' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Regenerate feedback | ${{ github.event.inputs.regenerate_feedback || '(none)' }} |" >> $GITHUB_STEP_SUMMARY
-      
       - name: Check for user sources
         id: check_sources
         run: |
           if [ -d "sources" ] && [ "$(ls -A sources 2>/dev/null)" ]; then
             echo "sources_exist=true" >> $GITHUB_OUTPUT
-            echo "📁 Found user sources folder with content" >> $GITHUB_STEP_SUMMARY
-            ls -la sources/ >> $GITHUB_STEP_SUMMARY
           else
             echo "sources_exist=false" >> $GITHUB_OUTPUT
-            echo "📁 No user sources folder (will use RSS only)" >> $GITHUB_STEP_SUMMARY
           fi
       
       - name: Generate newsletter
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EXTRA_PROMPT: |
-            ${{ github.event.inputs.custom_instructions }}
-            ${{ github.event.inputs.regenerate_feedback }}
-            ${{ github.event.inputs.focus_section != 'all' && format('Focus especially on the {0} section - make it more comprehensive.', github.event.inputs.focus_section) || '' }}
+          EXTRA_PROMPT: "${{ github.event.inputs.custom_instructions }} ${{ github.event.inputs.regenerate_feedback }}"
         run: |
           SOURCES_ARG=""
           if [ "${{ steps.check_sources.outputs.sources_exist }}" = "true" ]; then
@@ -133,35 +104,48 @@ jobs:
             newsletter.md
           retention-days: 14
       
-      - name: Post review instructions
+      - name: Post preview
         run: |
+          echo "## 📰 Newsletter Draft Ready" >> $GITHUB_STEP_SUMMARY
+          echo "Download the artifact above to review." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "## 📰 Newsletter Draft Ready for Review" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Review Steps:" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Download** artifact \`newsletter-draft-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Open** \`newsletter.html\` in browser" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Review** each section:" >> $GITHUB_STEP_SUMMARY
-          echo "   - 📊 Market Signals - strategic trends" >> $GITHUB_STEP_SUMMARY
-          echo "   - 🤝 Deals - M&A activity" >> $GITHUB_STEP_SUMMARY
-          echo "   - 👔 Hires & Fires - executive moves" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Then either:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Approve** → Click review button below" >> $GITHUB_STEP_SUMMARY
-          echo "- ✏️ **Request changes** → Reject, then re-run with feedback" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "### Quick Preview:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Preview:" >> $GITHUB_STEP_SUMMARY
           head -80 newsletter.md >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "... (download full version)" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
-  # ===========================================
-  # JOB 2: Wait for approval
-  # ===========================================
   wait-for-approval:
     runs-on: ubuntu-latest
-    needs: genera
+    needs: generate-draft
+    environment:
+      name: newsletter-approval
+    steps:
+      - name: Approved
+        run: echo "Newsletter approved!"
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [generate-draft, wait-for-approval]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Download newsletter
+        uses: actions/download-artifact@v4
+        with:
+          name: newsletter-draft-${{ needs.generate-draft.outputs.run_number || github.run_number }}
+          path: ./approved
+      
+      - name: Publish to repository
+        run: |
+          mkdir -p newsletters
+          DATE=$(date +%Y-%m-%d)
+          cp ./approved/newsletter.html newsletters/${DATE}.html
+          cp ./approved/newsletter.md newsletters/${DATE}.md
+          cp ./approved/newsletter.html newsletters/latest.html
+          cp ./approved/newsletter.md newsletters/latest.md
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add newsletters/
+          git commit -m "Newsletter ${DATE}" || echo "No changes"
+          git push
+          
+          echo "## Published!" >> $GITHUB_STEP_SUMMARY
