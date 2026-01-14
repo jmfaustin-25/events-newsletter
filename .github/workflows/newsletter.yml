@@ -23,7 +23,7 @@ on:
       newsletter_title:
         description: 'Newsletter title'
         required: false
-        default: 'Events Industry Intelligence'
+        default: 'The Second Curves Media & Events Brief'
       
       custom_instructions:
         description: 'Editorial instructions for Claude'
