@@ -2,24 +2,44 @@
 
 A professional newsletter generator for the **global B2B trade press, conferences, exhibitions, and events industry**.
 
-Written in **FT/Economist style** - strategic, analytical, board-level intelligence.
+Written in **FT/Economist style**: strategic, analytical, board-level intelligence — designed for **investors, board directors, and senior executives** who want signals, not noise.
 
-## Sections
+---
+
+## What you get
+
+A clean HTML (or Markdown) newsletter with three board-relevant sections:
 
 | Section | Icon | Content |
 |---------|------|---------|
-| **Market Signals** | 📊 | Strategic trends, market movements, analysis |
+| **Market Signals** | 📊 | Strategic trends, market movements, structural shifts |
 | **Deals** | 🤝 | M&A, investments, private equity, divestitures |
 | **Hires & Fires** | 👔 | Executive appointments, departures, restructuring |
+
+---
+
+## How it works (2-stage AI pipeline)
+
+This generator runs in **two steps**:
+
+1. **Filter + score (board lens):** Claude screens the raw feed + any user sources using board-level lenses (macro & capital, formats, geography, pricing/yield, M&A/portfolio moves, cost structure). It outputs a **ranked shortlist**.
+2. **Write (FT/Economist style):** Claude writes the final newsletter **only from the shortlist**, focusing on “why this matters” and strategic implications.
+
+This makes the newsletter tighter, more consistent, and less “trade-press round-up”.
+
+---
 
 ## Quick Start
 
 ### Option 1: GitHub Actions (Recommended)
 
 1. Fork this repository
-2. Add your API key: **Settings → Secrets → ANTHROPIC_API_KEY**
-3. Create environment: **Settings → Environments → newsletter-approval** (add yourself as reviewer)
-4. Go to **Actions → Run workflow**
+2. Add your API key: **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `ANTHROPIC_API_KEY`
+   - Value: your Anthropic key
+3. Go to **Actions → Run workflow** (or wait for the schedule)
+
+> If your workflow uses environments/approvals, follow any repo-specific instructions in `.github/workflows/newsletter.yml`.
 
 ### Option 2: Local
 
@@ -27,171 +47,3 @@ Written in **FT/Economist style** - strategic, analytical, board-level intellige
 pip install anthropic feedparser requests python-dateutil jinja2 beautifulsoup4
 export ANTHROPIC_API_KEY="sk-ant-..."
 python events_newsletter_generator.py --out-file newsletter.html
-```
-
-## Adding Your Own Sources
-
-Create a `sources/` folder in the repository with your collected articles:
-
-```
-sources/
-├── urls.txt              # List of URLs (one per line)
-├── informa-acquisition.txt   # Article text you've copied
-├── executive-moves.json      # Structured data
-└── analysis.md              # Your own analysis/notes
-```
-
-### Supported Formats
-
-**URLs file** (`*.txt` with URLs):
-```
-https://example.com/article-1
-https://example.com/article-2
-```
-
-**Article text** (`*.txt`):
-```
-Just paste the article content here.
-The filename becomes the title.
-```
-
-**JSON** (`*.json`):
-```json
-[
-  {
-    "title": "Informa acquires Tarsus",
-    "source": "Financial Times",
-    "content": "Informa has agreed to acquire...",
-    "link": "https://ft.com/..."
-  }
-]
-```
-
-**Markdown** (`*.md`):
-```markdown
-# My Analysis of RX France Sale
-
-The sale signals a broader trend...
-```
-
-**User-provided sources are prioritized** - Claude will ensure they're considered for inclusion.
-
-## Customizing RSS Feeds
-
-Edit `events_newsletter_generator.py` and modify the `RSS_FEEDS` dictionary:
-
-```python
-RSS_FEEDS = {
-    # Add your preferred sources
-    "my_source": "https://example.com/feed.xml",
-    
-    # Comment out sources you don't want
-    # "exhibition_world": "...",
-}
-```
-
-### Suggested Additional Feeds
-
-```python
-# Regional
-"mice_asia": "https://www.micenet.asia/feed/",
-"exhibition_world_asia": "https://www.exhibitionworld.asia/feed",
-
-# Trade associations
-"ufi_news": "https://www.ufi.org/feed/",
-"iaee_news": "https://www.iaee.com/feed/",
-
-# Business press (for M&A)
-"ft_media": "https://www.ft.com/companies/media?format=rss",
-"reuters_media": "https://www.reuters.com/news/archive/mediaNews?format=rss",
-```
-
-## Editing the Writing Style
-
-The `WRITING_STYLE` variable in the script controls Claude's tone. Current settings:
-
-- **Tone**: Authoritative, analytical (FT/Economist style)
-- **Structure**: Lead with significance, short paragraphs
-- **Language**: No hyperbole, no marketing speak, precise
-
-To adjust, edit the `WRITING_STYLE` string in the script.
-
-## Section Configuration
-
-Each section has keywords that help Claude categorize stories:
-
-```python
-SECTIONS = {
-    "market_signals": {
-        "keywords": ["market", "growth", "expansion", "partnership", ...],
-        "prompt_focus": "Focus on strategic market movements..."
-    },
-    ...
-}
-```
-
-## Workflow Options
-
-When running via GitHub Actions, you can customize:
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `days_back` | How far to look for news | 7, 14, 30 |
-| `stories_per_section` | Main stories per section | 2-5 |
-| `focus_section` | Emphasize a specific section | "deals" |
-| `custom_instructions` | Tell Claude what you want | "Focus on European market" |
-| `regenerate_feedback` | What to fix from last draft | "Remove Informa story, add more hires" |
-
-## Example Custom Instructions
-
-| Goal | What to Type |
-|------|--------------|
-| Regional focus | "Focus on European and UK market news" |
-| Specific companies | "Include any news about Informa, RX, or Clarion" |
-| Skip a topic | "Don't include sustainability stories this week" |
-| More analysis | "Add more strategic analysis, less news summary" |
-| Different tone | "Slightly more conversational, but still professional" |
-
-## File Structure
-
-```
-your-repo/
-├── events_newsletter_generator.py   # Main script
-├── README.md                        # This file
-├── sources/                         # Your collected sources (optional)
-│   ├── urls.txt
-│   └── *.json, *.txt, *.md
-├── newsletters/                     # Published newsletters (auto-created)
-│   ├── latest.html
-│   ├── latest.md
-│   ├── 2025-01-13.html
-│   └── ...
-└── .github/
-    └── workflows/
-        └── newsletter.yml           # GitHub Actions workflow
-```
-
-## Costs
-
-- **Claude API**: ~$0.05-0.15 per newsletter
-- **GitHub Actions**: Free (2,000 minutes/month on free tier)
-- **Total**: ~$2-5/month for weekly newsletters
-
-## Troubleshooting
-
-**"No articles found"**
-- Check if RSS feeds are working (some may be blocked or changed)
-- Try increasing `days_back`
-- Add more sources to the `sources/` folder
-
-**"JSON parse error"**
-- Usually means Claude's response was cut off
-- Try reducing `stories_per_section`
-
-**Empty sections**
-- Normal if no relevant news that period
-- Add more RSS feeds or user sources
-
-## License
-
-MIT - use freely for your own newsletter.
