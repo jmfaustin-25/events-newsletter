@@ -107,16 +107,20 @@ SECTIONS = {
         "title": "Market Signals",
         "icon": "📊",
         "description": "Strategic trends, market movements, and industry analysis",
+        "sub_themes": ["Macro Economy", "Consumer Trends"],
         "keywords": ["market", "growth", "revenue", "strategy", "expansion", "launch", 
                     "partnership", "trend", "forecast", "analysis", "report", "data",
                     "attendance", "exhibitors", "square feet", "square metres", "venue",
-                    "digital", "hybrid", "sustainability", "AI", "technology"],
-        "prompt_focus": "Focus on strategic market movements, industry trends, new ventures, partnerships, venue developments, format innovations, and market analysis. Emphasize what these signals mean for the industry's direction."
+                    "digital", "hybrid", "sustainability", "AI", "technology",
+                    "economy", "recession", "inflation", "GDP", "interest rates", "spending",
+                    "consumer", "audience", "visitors", "attendees", "behavior", "demand"],
+        "prompt_focus": "Focus on strategic market movements, industry trends, new ventures, partnerships, venue developments, format innovations, and market analysis. IMPORTANT: Organize stories under two sub-themes: (1) MACRO ECONOMY - economic conditions affecting the industry like recession fears, interest rates, corporate spending trends, and (2) CONSUMER TRENDS - attendee behavior, visitor patterns, audience preferences, and demand shifts. Label each story with its sub-theme."
     },
     "deals": {
         "title": "Deals",
         "icon": "🤝",
         "description": "Mergers, acquisitions, investments, and divestitures",
+        "sub_themes": None,
         "keywords": ["acquisition", "acquire", "merger", "merge", "investment", "invest",
                     "private equity", "PE", "buy", "sell", "divest", "stake", "valuation",
                     "deal", "transaction", "purchase", "funding", "capital", "IPO",
@@ -127,6 +131,7 @@ SECTIONS = {
         "title": "Hires & Fires",
         "icon": "👔",
         "description": "Executive appointments, departures, and restructuring",
+        "sub_themes": None,
         "keywords": ["CEO", "CFO", "COO", "CMO", "appointed", "appointment", "hire", "hired",
                     "join", "joined", "depart", "departure", "resign", "resignation", 
                     "retire", "retirement", "restructur", "layoff", "redundan", "chief",
@@ -207,6 +212,16 @@ HTML_TEMPLATE = """
             font-size: 20px;
             margin-right: 10px;
         }
+        .sub-theme {
+            font-size: 16px;
+            font-weight: 700;
+            color: #c41e3a;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 25px 0 15px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px dotted #c41e3a;
+        }
         .story {
             margin-bottom: 25px;
             padding-bottom: 25px;
@@ -241,34 +256,6 @@ HTML_TEMPLATE = """
         }
         .story .source-link:hover {
             text-decoration: underline;
-        }
-        .brief-items {
-            background: #f5f5f0;
-            padding: 20px;
-            margin-top: 15px;
-        }
-        .brief-items h4 {
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin: 0 0 15px 0;
-            color: #666;
-        }
-        .brief-items ul {
-            margin: 0;
-            padding-left: 20px;
-        }
-        .brief-items li {
-            margin-bottom: 8px;
-            font-size: 15px;
-        }
-        .brief-items a {
-            color: #1a1a1a;
-            text-decoration: none;
-            border-bottom: 1px solid #ccc;
-        }
-        .brief-items a:hover {
-            border-bottom-color: #c41e3a;
         }
         .footer {
             margin-top: 40px;
@@ -305,28 +292,37 @@ HTML_TEMPLATE = """
         </div>
         
         {% if section_data.stories %}
-            {% for story in section_data.stories %}
-            <div class="story">
-                <h3>{{ story.headline }}</h3>
-                <div class="meta">{{ story.source }} • {{ story.published }}</div>
-                <div class="content">
-                    {{ story.summary }}
+            {% if section_data.sub_themes %}
+                {% for sub_theme in section_data.sub_themes %}
+                <div class="sub-theme">{{ sub_theme }}</div>
+                {% for story in section_data.stories %}
+                {% if story.sub_theme == sub_theme %}
+                <div class="story">
+                    <h3>{{ story.headline }}</h3>
+                    <div class="meta">{{ story.source }} • {{ story.published }}</div>
+                    <div class="content">
+                        {{ story.summary }}
+                    </div>
+                    {% if story.link %}
+                    <a href="{{ story.link }}" class="source-link">Read source →</a>
+                    {% endif %}
                 </div>
-                {% if story.link %}
-                <a href="{{ story.link }}" class="source-link">Read source →</a>
                 {% endif %}
-            </div>
-            {% endfor %}
-            
-            {% if section_data.briefs %}
-            <div class="brief-items">
-                <h4>In Brief</h4>
-                <ul>
-                {% for brief in section_data.briefs %}
-                    <li><a href="{{ brief.link }}">{{ brief.title }}</a> ({{ brief.source }})</li>
                 {% endfor %}
-                </ul>
-            </div>
+                {% endfor %}
+            {% else %}
+                {% for story in section_data.stories %}
+                <div class="story">
+                    <h3>{{ story.headline }}</h3>
+                    <div class="meta">{{ story.source }} • {{ story.published }}</div>
+                    <div class="content">
+                        {{ story.summary }}
+                    </div>
+                    {% if story.link %}
+                    <a href="{{ story.link }}" class="source-link">Read source →</a>
+                    {% endif %}
+                </div>
+                {% endfor %}
             {% endif %}
         {% else %}
             <p class="no-stories">No significant {{ section_data.title.lower() }} this period.</p>
@@ -335,7 +331,7 @@ HTML_TEMPLATE = """
     {% endfor %}
     
     <div class="footer">
-        {{ footer_text | default('Published by Events Industry Intelligence') }}
+        {{ footer_text | default('Published by Second Curves') }}
     </div>
 </body>
 </html>
@@ -360,6 +356,26 @@ MARKDOWN_TEMPLATE = """# {{ title }}
 ## {{ section_data.icon }} {{ section_data.title }}
 
 {% if section_data.stories %}
+{% if section_data.sub_themes %}
+{% for sub_theme in section_data.sub_themes %}
+### {{ sub_theme }}
+
+{% for story in section_data.stories %}
+{% if story.sub_theme == sub_theme %}
+#### {{ story.headline }}
+
+*{{ story.source }} • {{ story.published }}*
+
+{{ story.summary }}
+
+{% if story.link %}[Read source →]({{ story.link }}){% endif %}
+
+---
+
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% else %}
 {% for story in section_data.stories %}
 ### {{ story.headline }}
 
@@ -372,12 +388,6 @@ MARKDOWN_TEMPLATE = """# {{ title }}
 ---
 
 {% endfor %}
-
-{% if section_data.briefs %}
-**In Brief:**
-{% for brief in section_data.briefs %}
-- [{{ brief.title }}]({{ brief.link }}) *({{ brief.source }})*
-{% endfor %}
 {% endif %}
 
 {% else %}
@@ -388,7 +398,7 @@ MARKDOWN_TEMPLATE = """# {{ title }}
 
 ---
 
-*{{ footer_text | default('Published by Events Industry Intelligence') }}*
+*{{ footer_text | default('Published by Second Curves') }}*
 """
 
 # =============================================================================
@@ -658,24 +668,22 @@ Respond with valid JSON in this exact structure:
                     "article_index": 1,
                     "headline": "Strategic, informative headline",
                     "summary": "2-3 paragraph analysis in FT style. Focus on strategic implications.",
+                    "sub_theme": "Macro Economy",
                     "why_selected": "Brief editorial note on significance"
                 }}
-            ],
-            "briefs": [
-                {{"article_index": 5, "title": "Brief headline"}}
             ]
         }},
         "deals": {{
-            "stories": [...],
-            "briefs": [...]
+            "stories": [...]
         }},
         "hires_fires": {{
-            "stories": [...],
-            "briefs": [...]
+            "stories": [...]
         }}
     }}
 }}
 
+IMPORTANT: For market_signals stories, you MUST include "sub_theme" field with either "Macro Economy" or "Consumer Trends".
+Do NOT include any "briefs" or "in brief" items - only main stories.
 If a section has no relevant stories, use empty arrays.
 Return ONLY valid JSON, no other text."""
 
@@ -712,30 +720,23 @@ Return ONLY valid JSON, no other text."""
             idx = story.get("article_index", 1) - 1
             if 0 <= idx < len(articles):
                 original = articles[idx]
-                enriched_stories.append({
+                enriched_story = {
                     "headline": story.get("headline", original["title"]),
                     "summary": story.get("summary", original["content"]),
                     "source": original["source"],
                     "link": original["link"],
                     "published": original["published"]
-                })
-        
-        briefs = []
-        for brief in section_data.get("briefs", [])[:5]:
-            idx = brief.get("article_index", 1) - 1
-            if 0 <= idx < len(articles):
-                original = articles[idx]
-                briefs.append({
-                    "title": brief.get("title", original["title"]),
-                    "source": original["source"],
-                    "link": original["link"]
-                })
+                }
+                # Add sub_theme if present (for market_signals)
+                if story.get("sub_theme"):
+                    enriched_story["sub_theme"] = story.get("sub_theme")
+                enriched_stories.append(enriched_story)
         
         enriched_sections[section_key] = {
             "title": section_config["title"],
             "icon": section_config["icon"],
             "stories": enriched_stories,
-            "briefs": briefs
+            "sub_themes": section_config.get("sub_themes")
         }
     
     return {
@@ -769,7 +770,7 @@ def generate_newsletter(
     days_back: int = 7,
     stories_per_section: int = 3,
     output_format: str = "html",
-    title: str = "Events Industry Intelligence",
+    title: str = "The Second Curves Media & Events Brief",
     api_key: Optional[str] = None,
     custom_feeds: Optional[dict] = None,
     sources_folder: Optional[str] = None,
@@ -874,7 +875,7 @@ Environment Variables:
     
     parser.add_argument(
         "--title", "-t",
-        default="Events Industry Intelligence",
+        default="The Second Curves Media & Events Brief",
         help="Newsletter title"
     )
     
