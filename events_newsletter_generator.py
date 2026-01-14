@@ -2,12 +2,12 @@
 """
 B2B Trade Press & Events Industry Newsletter Generator
 -------------------------------------------------------
-A specialized newsletter for the global trade press, conference, 
+A specialized newsletter for the global trade press, conference,
 and tradeshow market. Written in FT/Economist style for board-level readers.
 
 Sections:
 1. Market Signals - Strategic trends, market movements, analysis
-2. Deals (M&A) - Mergers, acquisitions, investments, divestitures  
+2. Deals (M&A) - Mergers, acquisitions, investments, divestitures
 3. Hires & Fires - Executive appointments, departures, restructuring
 
 Usage:
@@ -23,11 +23,11 @@ import argparse
 import json
 import os
 import re
-import glob
 from pathlib import Path
 from datetime import datetime, timedelta
 from dateutil import parser as date_parser
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+
 import feedparser
 import requests
 from anthropic import Anthropic
@@ -47,16 +47,16 @@ RSS_FEEDS = {
     "eventindustrynews": "https://www.eventindustrynews.com/feed",
     "tsnn": "https://www.tsnn.com/feed",  # Trade Show News Network
     "exhibitor_online": "https://www.exhibitoronline.com/news/rss.xml",
-    
+
     # B2B Media & Publishing
     "fipp": "https://www.fipp.com/feed/",  # Media industry
     "inpublishing": "https://www.inpublishing.co.uk/feed",
     "pressgazette": "https://pressgazette.co.uk/feed/",
     "journalism_co_uk": "https://www.journalism.co.uk/feed/",
-    
+
     # Business News (filtered for media/events M&A)
-    "pe_hub_media": "https://www.pehub.com/feed/",  # Private equity deals
-    
+    "pe_hub_media": "https://www.pehub.com/feed/",
+
     # Marketing & Events Adjacent
     "event_marketer": "https://www.eventmarketer.com/feed/",
     "bizbash": "https://www.bizbash.com/rss.xml",
@@ -101,6 +101,52 @@ EXAMPLES OF GOOD PHRASING:
 - "The appointment suggests a strategic shift toward..." not "Great hire!"
 """
 
+# =============================================================================
+# BOARD-LEVEL FILTERING & PRIORITISATION (Stage 1)
+# =============================================================================
+
+FILTERING_SPEC = """
+AI BRIEF: ARTICLE FILTERING & PRIORITISATION (BOARD-LEVEL)
+
+Role:
+- You are a senior industry intelligence analyst.
+Audience:
+- PE investors, board directors, CEOs, corp dev leaders in global B2B media & live events.
+
+Objective:
+- Filter and prioritise only articles that reveal structural change or economically meaningful shifts.
+- Focus on implications for capital allocation, valuation, strategy, revenue quality, margins, or risk.
+Exclude:
+- Product launches, vendor marketing, event-tech hype, tactical “how-to”, generic macro with no industry transmission.
+
+Core Analytical Lenses (article must fit at least one):
+1) Macro & Capital
+2) Formats & Attention
+3) Geography & Exposure
+4) Pricing, Yield & Revenue Quality
+5) Portfolio Strategy & M&A
+6) Cost Structure & Operating Leverage
+
+Mandatory questions:
+- What is the signal?
+- Why does this matter economically?
+- Who is affected?
+- Structural or cyclical?
+- What board-level question does it raise?
+
+Scoring (/25): 0–5 each:
+- Strategic relevance
+- Economic impact
+- Decision usefulness
+- Signal strength
+- Transferability
+
+Interpretation:
+- 20–25 Must include
+- 14–19 Include if space allows
+- <14 Exclude
+"""
+
 # Section definitions
 SECTIONS = {
     "market_signals": {
@@ -108,13 +154,20 @@ SECTIONS = {
         "icon": "📊",
         "description": "Strategic trends, market movements, and industry analysis",
         "sub_themes": ["Macro Economy", "Consumer Trends"],
-        "keywords": ["market", "growth", "revenue", "strategy", "expansion", "launch", 
-                    "partnership", "trend", "forecast", "analysis", "report", "data",
-                    "attendance", "exhibitors", "square feet", "square metres", "venue",
-                    "digital", "hybrid", "sustainability", "AI", "technology",
-                    "economy", "recession", "inflation", "GDP", "interest rates", "spending",
-                    "consumer", "audience", "visitors", "attendees", "behavior", "demand"],
-        "prompt_focus": "Focus on strategic market movements, industry trends, new ventures, partnerships, venue developments, format innovations, and market analysis. IMPORTANT: Organize stories under two sub-themes: (1) MACRO ECONOMY - economic conditions affecting the industry like recession fears, interest rates, corporate spending trends, and (2) CONSUMER TRENDS - attendee behavior, visitor patterns, audience preferences, and demand shifts. Label each story with its sub-theme."
+        "keywords": ["market", "growth", "revenue", "strategy", "expansion", "launch",
+                     "partnership", "trend", "forecast", "analysis", "report", "data",
+                     "attendance", "exhibitors", "square feet", "square metres", "venue",
+                     "digital", "hybrid", "sustainability", "AI", "technology",
+                     "economy", "recession", "inflation", "GDP", "interest rates", "spending",
+                     "consumer", "audience", "visitors", "attendees", "behavior", "demand"],
+        "prompt_focus": (
+            "Focus on strategic market movements, industry trends, new ventures, partnerships, "
+            "venue developments, format innovations, and market analysis. IMPORTANT: Organize "
+            "stories under two sub-themes: (1) MACRO ECONOMY - economic conditions affecting the "
+            "industry like recession fears, interest rates, corporate spending trends, and "
+            "(2) CONSUMER TRENDS - attendee behavior, visitor patterns, audience preferences, "
+            "and demand shifts. Label each story with its sub-theme."
+        )
     },
     "deals": {
         "title": "Deals",
@@ -122,10 +175,13 @@ SECTIONS = {
         "description": "Mergers, acquisitions, investments, and divestitures",
         "sub_themes": None,
         "keywords": ["acquisition", "acquire", "merger", "merge", "investment", "invest",
-                    "private equity", "PE", "buy", "sell", "divest", "stake", "valuation",
-                    "deal", "transaction", "purchase", "funding", "capital", "IPO",
-                    "Informa", "RX", "Clarion", "Hyve", "Tarsus", "Emerald", "Endeavor"],
-        "prompt_focus": "Focus on M&A activity, private equity moves, strategic investments, and divestitures. Include deal values where known, and analyze strategic rationale and market implications."
+                     "private equity", "PE", "buy", "sell", "divest", "stake", "valuation",
+                     "deal", "transaction", "purchase", "funding", "capital", "IPO",
+                     "Informa", "RX", "Clarion", "Hyve", "Tarsus", "Emerald", "Endeavor"],
+        "prompt_focus": (
+            "Focus on M&A activity, private equity moves, strategic investments, and divestitures. "
+            "Include deal values where known, and analyze strategic rationale and market implications."
+        )
     },
     "hires_fires": {
         "title": "Hires & Fires",
@@ -133,10 +189,14 @@ SECTIONS = {
         "description": "Executive appointments, departures, and restructuring",
         "sub_themes": None,
         "keywords": ["CEO", "CFO", "COO", "CMO", "appointed", "appointment", "hire", "hired",
-                    "join", "joined", "depart", "departure", "resign", "resignation", 
-                    "retire", "retirement", "restructur", "layoff", "redundan", "chief",
-                    "president", "director", "managing director", "MD", "VP", "executive"],
-        "prompt_focus": "Focus on senior executive movements (C-suite, MD, VP level and above). Analyze what appointments signal about company strategy. Note patterns in hiring (e.g., digital expertise, international expansion)."
+                     "join", "joined", "depart", "departure", "resign", "resignation",
+                     "retire", "retirement", "restructur", "layoff", "redundan", "chief",
+                     "president", "director", "managing director", "MD", "VP", "executive"],
+        "prompt_focus": (
+            "Focus on senior executive movements (C-suite, MD, VP level and above). "
+            "Analyze what appointments signal about company strategy. Note patterns in hiring "
+            "(e.g., digital expertise, international expansion)."
+        )
     }
 }
 
@@ -277,20 +337,20 @@ HTML_TEMPLATE = """
         <div class="tagline">Intelligence for the global exhibitions, events & trade media industry</div>
         <div class="date">{{ date }}</div>
     </div>
-    
+
     {% if intro %}
     <div class="intro">
         {{ intro }}
     </div>
     {% endif %}
-    
+
     {% for section_key, section_data in sections.items() %}
     <div class="section">
         <div class="section-header">
             <span class="icon">{{ section_data.icon }}</span>
             <h2>{{ section_data.title }}</h2>
         </div>
-        
+
         {% if section_data.stories %}
             {% if section_data.sub_themes %}
                 {% for sub_theme in section_data.sub_themes %}
@@ -329,7 +389,7 @@ HTML_TEMPLATE = """
         {% endif %}
     </div>
     {% endfor %}
-    
+
     <div class="footer">
         {{ footer_text | default('Published by Second Curves') }}
     </div>
@@ -409,27 +469,24 @@ def fetch_feeds(feeds: dict, days_back: int = 7) -> list:
     """Fetch and parse RSS feeds, returning articles from the last N days."""
     cutoff_date = datetime.now() - timedelta(days=days_back)
     articles = []
-    
+
     for source_name, feed_url in feeds.items():
         try:
             print(f"  Fetching {source_name}...")
-            
-            # Add headers to avoid blocks
+
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            
-            # Some feeds need direct request
+
             try:
                 response = requests.get(feed_url, headers=headers, timeout=15)
                 feed = feedparser.parse(response.content)
-            except:
+            except Exception:
                 feed = feedparser.parse(feed_url)
-            
+
             if not feed.entries:
                 print(f"    ⚠️  No entries found")
                 continue
-                
-            for entry in feed.entries[:15]:  # Limit per source
-                # Parse publication date
+
+            for entry in feed.entries[:15]:
                 pub_date = None
                 for date_field in ['published', 'updated', 'created', 'pubDate']:
                     if hasattr(entry, date_field):
@@ -438,17 +495,15 @@ def fetch_feeds(feeds: dict, days_back: int = 7) -> list:
                             if pub_date.tzinfo:
                                 pub_date = pub_date.replace(tzinfo=None)
                             break
-                        except:
+                        except Exception:
                             continue
-                
+
                 if not pub_date:
                     pub_date = datetime.now()
-                
-                # Skip old articles
+
                 if pub_date < cutoff_date:
                     continue
-                
-                # Extract content
+
                 content = ""
                 if hasattr(entry, 'summary'):
                     content = entry.summary
@@ -456,12 +511,11 @@ def fetch_feeds(feeds: dict, days_back: int = 7) -> list:
                     content = entry.description
                 elif hasattr(entry, 'content'):
                     content = entry.content[0].value if entry.content else ""
-                
-                # Clean HTML from content
+
                 content = re.sub(r'<[^>]+>', '', content)
                 content = re.sub(r'\s+', ' ', content).strip()
-                content = content[:2000]  # Truncate
-                
+                content = content[:2000]
+
                 articles.append({
                     "source": source_name.replace("_", " ").title(),
                     "title": entry.get('title', 'Untitled'),
@@ -471,43 +525,32 @@ def fetch_feeds(feeds: dict, days_back: int = 7) -> list:
                     "pub_timestamp": pub_date.timestamp(),
                     "from_user_sources": False
                 })
-                
+
         except Exception as e:
             print(f"    ⚠️  Error: {e}")
-    
-    # Sort by date (newest first)
+
     articles.sort(key=lambda x: x['pub_timestamp'], reverse=True)
     print(f"  ✓ Fetched {len(articles)} articles from RSS feeds")
     return articles
 
 
 def load_user_sources(sources_folder: str) -> list:
-    """Load articles from user-provided sources folder.
-    
-    Supports:
-    - .txt files with URLs (one per line)
-    - .txt files with article text
-    - .json files with article data
-    - .md files with content
-    """
+    """Load articles from user-provided sources folder."""
     articles = []
     folder = Path(sources_folder)
-    
+
     if not folder.exists():
         print(f"  Sources folder not found: {sources_folder}")
         return articles
-    
+
     print(f"  Loading user sources from {sources_folder}...")
-    
-    # Process text files
+
     for txt_file in folder.glob("*.txt"):
         try:
             content = txt_file.read_text(encoding='utf-8')
-            
-            # Check if it's a URL list
+
             lines = content.strip().split('\n')
             if all(line.strip().startswith(('http://', 'https://')) for line in lines if line.strip()):
-                # It's a URL list - we'll just note them for now
                 for url in lines:
                     url = url.strip()
                     if url:
@@ -521,7 +564,6 @@ def load_user_sources(sources_folder: str) -> list:
                             "from_user_sources": True
                         })
             else:
-                # It's article content
                 articles.append({
                     "source": "User Source",
                     "title": txt_file.stem.replace("_", " ").replace("-", " ").title(),
@@ -533,13 +575,11 @@ def load_user_sources(sources_folder: str) -> list:
                 })
         except Exception as e:
             print(f"    ⚠️  Error reading {txt_file}: {e}")
-    
-    # Process JSON files
+
     for json_file in folder.glob("*.json"):
         try:
             data = json.loads(json_file.read_text(encoding='utf-8'))
-            
-            # Handle array of articles
+
             if isinstance(data, list):
                 for item in data:
                     articles.append({
@@ -551,7 +591,6 @@ def load_user_sources(sources_folder: str) -> list:
                         "pub_timestamp": datetime.now().timestamp(),
                         "from_user_sources": True
                     })
-            # Handle single article object
             elif isinstance(data, dict):
                 articles.append({
                     "source": data.get("source", "User Source"),
@@ -564,15 +603,13 @@ def load_user_sources(sources_folder: str) -> list:
                 })
         except Exception as e:
             print(f"    ⚠️  Error reading {json_file}: {e}")
-    
-    # Process Markdown files
+
     for md_file in folder.glob("*.md"):
         try:
             content = md_file.read_text(encoding='utf-8')
-            # Try to extract title from first heading
             title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
             title = title_match.group(1) if title_match else md_file.stem.replace("_", " ").title()
-            
+
             articles.append({
                 "source": "User Source",
                 "title": title,
@@ -584,34 +621,34 @@ def load_user_sources(sources_folder: str) -> list:
             })
         except Exception as e:
             print(f"    ⚠️  Error reading {md_file}: {e}")
-    
+
     print(f"  ✓ Loaded {len(articles)} user-provided sources")
     return articles
 
 
-def categorize_and_write_newsletter(
-    articles: list, 
+def filter_and_score_articles(
+    articles: list,
     api_key: Optional[str] = None,
     custom_instructions: Optional[str] = None,
-    stories_per_section: int = 3
-) -> dict:
-    """Use Claude to categorize articles and write newsletter sections."""
-    
+    max_articles_in_prompt: int = 60
+) -> List[Dict[str, Any]]:
+    """
+    Stage 1: Filter + score articles using FILTERING_SPEC.
+    Returns a ranked shortlist enriched with original article metadata.
+    """
+
     if not api_key:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
-    
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not found.")
-    
-    # Check for custom instructions from environment
+
     if not custom_instructions:
         custom_instructions = os.environ.get("EXTRA_PROMPT", "")
-    
+
     client = Anthropic(api_key=api_key)
-    
-    # Prepare articles for Claude
+
     articles_text = ""
-    for i, article in enumerate(articles[:60]):  # Limit to prevent token overflow
+    for i, article in enumerate(articles[:max_articles_in_prompt]):
         user_flag = " [USER-PROVIDED SOURCE - PRIORITIZE]" if article.get('from_user_sources') else ""
         articles_text += f"""
 ---
@@ -620,17 +657,150 @@ Source: {article['source']}
 Title: {article['title']}
 Published: {article['published']}
 Link: {article['link']}
-Content: {article['content'][:1000]}
+Content: {article['content'][:900]}
 ---
 """
-    
-    # Build section descriptions for prompt
+
+    prompt = f"""You are the research desk for a board-level intelligence newsletter in global B2B media & live events.
+
+{FILTERING_SPEC}
+
+{f"SPECIAL EDITORIAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
+
+ARTICLES:
+{articles_text}
+
+TASK:
+1) Exclude anything that does not meet the inclusion criteria.
+2) For each INCLUDED article:
+   - Assign ONE primary lens from the six.
+   - Write why_it_matters (2–3 sentences; implications only, not a summary).
+   - Write board_question (1 sentence).
+   - Score each dimension 0–5 and provide total /25.
+3) Rank included articles by:
+   - total_score desc,
+   - then user_provided first,
+   - then recency.
+
+OUTPUT:
+Return ONLY valid JSON in exactly this structure:
+{{
+  "included": [
+    {{
+      "article_index": 1,
+      "primary_lens": "Pricing, Yield & Revenue Quality",
+      "why_it_matters": "...",
+      "board_question": "...",
+      "scores": {{
+        "strategic_relevance": 0,
+        "economic_impact": 0,
+        "decision_usefulness": 0,
+        "signal_strength": 0,
+        "transferability": 0,
+        "total": 0
+      }},
+      "include_tier": "must_include|space_allows",
+      "notes": "Optional: 1 short sentence on what to watch next"
+    }}
+  ]
+}}
+
+Rules:
+- Do not invent facts not present in the article snippet.
+- If unsure, state assumptions briefly in notes.
+- Aim for 8–20 included items if available; otherwise include fewer.
+"""
+
+    print("  Stage 1: Filtering and scoring articles (board-level lens)...")
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    response_text = response.content[0].text
+
+    try:
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        result = json.loads(json_match.group() if json_match else response_text)
+    except json.JSONDecodeError as e:
+        print(f"  ⚠️  JSON parse error (Stage 1): {e}")
+        print(f"  Response preview: {response_text[:500]}")
+        raise
+
+    included = result.get("included", [])
+
+    enriched: List[Dict[str, Any]] = []
+    for item in included:
+        idx = int(item.get("article_index", 1)) - 1
+        if 0 <= idx < len(articles):
+            a = articles[idx]
+            scores = item.get("scores", {})
+            enriched.append({
+                **item,
+                "title": a.get("title", ""),
+                "source": a.get("source", ""),
+                "link": a.get("link", ""),
+                "published": a.get("published", ""),
+                "pub_timestamp": a.get("pub_timestamp", 0),
+                "from_user_sources": a.get("from_user_sources", False),
+                "total_score": int(scores.get("total", 0)),
+            })
+
+    enriched.sort(
+        key=lambda x: (
+            -x.get("total_score", 0),
+            0 if x.get("from_user_sources") else 1,
+            -x.get("pub_timestamp", 0),
+        )
+    )
+
+    print(f"  ✓ Stage 1 shortlisted {len(enriched)} articles")
+    return enriched
+
+
+def categorize_and_write_newsletter(
+    shortlisted: list,
+    api_key: Optional[str] = None,
+    custom_instructions: Optional[str] = None,
+    stories_per_section: int = 3
+) -> dict:
+    """Stage 2: Use Claude to write newsletter sections from a shortlisted set."""
+
+    if not api_key:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY not found.")
+
+    if not custom_instructions:
+        custom_instructions = os.environ.get("EXTRA_PROMPT", "")
+
+    client = Anthropic(api_key=api_key)
+
+    # Prepare shortlisted items for Claude (include lens + scores for prioritisation)
+    articles_text = ""
+    for i, article in enumerate(shortlisted[:30]):
+        user_flag = " [USER-PROVIDED SOURCE - PRIORITIZE]" if article.get('from_user_sources') else ""
+        articles_text += f"""
+---
+[Shortlist {i+1}]{user_flag}
+Source: {article.get('source', '')}
+Title: {article.get('title', 'Untitled')}
+Published: {article.get('published', '')}
+Link: {article.get('link', '')}
+PrimaryLens: {article.get('primary_lens', '')}
+ScoreTotal: {article.get('total_score', '')}/25
+WhyItMatters: {article.get('why_it_matters', '')}
+BoardQuestion: {article.get('board_question', '')}
+---
+"""
+
     sections_desc = ""
-    for key, section in SECTIONS.items():
+    for _, section in SECTIONS.items():
         sections_desc += f"""
 {section['title'].upper()}:
 - {section['description']}
-- Keywords: {', '.join(section['keywords'][:10])}
 - Focus: {section['prompt_focus']}
 """
 
@@ -639,7 +809,7 @@ Content: {article['content'][:1000]}
 {WRITING_STYLE}
 
 YOUR TASK:
-Analyze the provided articles and produce a newsletter with three sections. For each section, select the most significant stories and write them in FT/Economist editorial style.
+Using ONLY the shortlisted items, produce a newsletter with three sections. For each section, select the most significant stories and write them in FT/Economist editorial style.
 
 SECTIONS TO PRODUCE:
 {sections_desc}
@@ -647,15 +817,14 @@ SECTIONS TO PRODUCE:
 IMPORTANT RULES:
 1. USER-PROVIDED SOURCES (marked with [USER-PROVIDED SOURCE]) should be prioritized - the editor specifically collected these
 2. Each section should have {stories_per_section} main stories (if enough quality content exists)
-3. Include 2-4 "In Brief" items per section for lesser stories worth noting
-4. If a story doesn't clearly fit a section, use your judgment or skip it
-5. Avoid duplicating the same story across sections
-6. Write headlines that are informative, not clickbait
-7. Summaries should be 2-3 short paragraphs analyzing the strategic significance
+3. If a story doesn't clearly fit a section, use your judgment or skip it
+4. Avoid duplicating the same story across sections
+5. Write headlines that are informative, not clickbait
+6. Summaries should be 2-3 short paragraphs analyzing the strategic significance
 
 {f"SPECIAL EDITORIAL INSTRUCTIONS: {custom_instructions}" if custom_instructions else ""}
 
-ARTICLES TO ANALYZE:
+SHORTLISTED ITEMS TO ANALYZE:
 {articles_text}
 
 Respond with valid JSON in this exact structure:
@@ -665,7 +834,7 @@ Respond with valid JSON in this exact structure:
         "market_signals": {{
             "stories": [
                 {{
-                    "article_index": 1,
+                    "shortlist_index": 1,
                     "headline": "Strategic, informative headline",
                     "summary": "2-3 paragraph analysis in FT style. Focus on strategic implications.",
                     "sub_theme": "Macro Economy",
@@ -687,58 +856,52 @@ Do NOT include any "briefs" or "in brief" items - only main stories.
 If a section has no relevant stories, use empty arrays.
 Return ONLY valid JSON, no other text."""
 
-    print("  Asking Claude to analyze and write newsletter...")
-    
+    print("  Asking Claude to analyze and write newsletter (from shortlist)...")
+
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=6000,
         messages=[{"role": "user", "content": prompt}]
     )
-    
+
     response_text = response.content[0].text
-    
-    # Parse JSON response
+
     try:
         json_match = re.search(r'\{[\s\S]*\}', response_text)
-        if json_match:
-            result = json.loads(json_match.group())
-        else:
-            result = json.loads(response_text)
+        result = json.loads(json_match.group() if json_match else response_text)
     except json.JSONDecodeError as e:
         print(f"  ⚠️  JSON parse error: {e}")
         print(f"  Response preview: {response_text[:500]}")
         raise
-    
-    # Enrich stories with original article data
+
     enriched_sections = {}
-    
+
     for section_key, section_config in SECTIONS.items():
         section_data = result.get("sections", {}).get(section_key, {})
-        
+
         enriched_stories = []
         for story in section_data.get("stories", []):
-            idx = story.get("article_index", 1) - 1
-            if 0 <= idx < len(articles):
-                original = articles[idx]
+            idx = int(story.get("shortlist_index", 1)) - 1
+            if 0 <= idx < len(shortlisted):
+                original = shortlisted[idx]
                 enriched_story = {
-                    "headline": story.get("headline", original["title"]),
-                    "summary": story.get("summary", original["content"]),
-                    "source": original["source"],
-                    "link": original["link"],
-                    "published": original["published"]
+                    "headline": story.get("headline", original.get("title", "")),
+                    "summary": story.get("summary", ""),
+                    "source": original.get("source", ""),
+                    "link": original.get("link", ""),
+                    "published": original.get("published", "")
                 }
-                # Add sub_theme if present (for market_signals)
                 if story.get("sub_theme"):
                     enriched_story["sub_theme"] = story.get("sub_theme")
                 enriched_stories.append(enriched_story)
-        
+
         enriched_sections[section_key] = {
             "title": section_config["title"],
             "icon": section_config["icon"],
             "stories": enriched_stories,
             "sub_themes": section_config.get("sub_themes")
         }
-    
+
     return {
         "intro": result.get("intro", ""),
         "sections": enriched_sections
@@ -746,17 +909,17 @@ Return ONLY valid JSON, no other text."""
 
 
 def render_newsletter(
-    content: dict, 
+    content: dict,
     output_format: str = "html",
     title: str = "Events Industry Intelligence",
     footer_text: str = None
 ) -> str:
     """Render the newsletter content to HTML or Markdown."""
     from jinja2 import Template
-    
+
     template_str = HTML_TEMPLATE if output_format == "html" else MARKDOWN_TEMPLATE
     template = Template(template_str)
-    
+
     return template.render(
         title=title,
         date=datetime.now().strftime("%d %B %Y"),
@@ -777,52 +940,57 @@ def generate_newsletter(
     footer_text: Optional[str] = None
 ) -> str:
     """Main function to generate a complete newsletter."""
-    
+
     feeds = custom_feeds or RSS_FEEDS
-    
+
     print("\n" + "=" * 60)
     print("📰 B2B TRADE PRESS & EVENTS NEWSLETTER GENERATOR")
     print("=" * 60)
-    
+
     # Step 1: Fetch RSS articles
-    print(f"\n[1/4] Fetching articles from {len(feeds)} RSS sources...")
+    print(f"\n[1/5] Fetching articles from {len(feeds)} RSS sources...")
     articles = fetch_feeds(feeds, days_back)
-    
+
     # Step 2: Load user sources
     if sources_folder:
-        print(f"\n[2/4] Loading user-provided sources...")
+        print(f"\n[2/5] Loading user-provided sources...")
         user_articles = load_user_sources(sources_folder)
         articles = user_articles + articles  # Prioritize user sources
     else:
-        print(f"\n[2/4] No user sources folder specified, skipping...")
-    
+        print(f"\n[2/5] No user sources folder specified, skipping...")
+
     print(f"\n  Total articles to analyze: {len(articles)}")
-    
+
     if not articles:
         return "No articles found. Check RSS feeds and sources folder."
-    
-    # Step 3: Categorize and write with Claude
-    print(f"\n[3/4] Writing newsletter with Claude...")
+
+    # Step 3: Filter + score (board-level)
+    print(f"\n[3/5] Filtering + scoring articles (board-level lens)...")
+    shortlist = filter_and_score_articles(articles, api_key=api_key)
+
+    if not shortlist:
+        return "No articles passed the board-level filter this period."
+
+    # Step 4: Write newsletter from shortlist
+    print(f"\n[4/5] Writing newsletter with Claude from shortlist...")
     content = categorize_and_write_newsletter(
-        articles, 
+        shortlist,
         api_key,
         stories_per_section=stories_per_section
     )
-    
-    # Count stories
+
     total_stories = sum(len(s.get("stories", [])) for s in content["sections"].values())
-    total_briefs = sum(len(s.get("briefs", [])) for s in content["sections"].values())
-    print(f"  ✓ Generated {total_stories} main stories + {total_briefs} briefs")
-    
-    # Step 4: Render newsletter
-    print(f"\n[4/4] Rendering {output_format.upper()} newsletter...")
+    print(f"  ✓ Generated {total_stories} main stories")
+
+    # Step 5: Render
+    print(f"\n[5/5] Rendering {output_format.upper()} newsletter...")
     newsletter = render_newsletter(content, output_format, title, footer_text)
     print(f"  ✓ Newsletter complete ({len(newsletter):,} characters)")
-    
+
     print("\n" + "=" * 60)
     print("✅ DONE!")
     print("=" * 60 + "\n")
-    
+
     return newsletter
 
 
@@ -839,7 +1007,7 @@ Examples:
   python events_newsletter_generator.py
   python events_newsletter_generator.py --sources-folder ./my_sources
   python events_newsletter_generator.py --days 14 --stories 4 --output html
-  
+
 Sources Folder:
   Create a folder with your own sources in these formats:
   - .txt files with URLs (one per line)
@@ -849,61 +1017,27 @@ Sources Folder:
 
 Environment Variables:
   ANTHROPIC_API_KEY - Your Anthropic API key (required)
+  EXTRA_PROMPT - Extra editorial instructions (optional)
         """
     )
-    
-    parser.add_argument(
-        "--output", "-o",
-        choices=["html", "markdown", "md"],
-        default="html",
-        help="Output format (default: html)"
-    )
-    
-    parser.add_argument(
-        "--days", "-d",
-        type=int,
-        default=7,
-        help="How many days back to look for articles (default: 7)"
-    )
-    
-    parser.add_argument(
-        "--stories", "-s",
-        type=int,
-        default=3,
-        help="Number of main stories per section (default: 3)"
-    )
-    
-    parser.add_argument(
-        "--title", "-t",
-        default="The Second Curves Media & Events Brief",
-        help="Newsletter title"
-    )
-    
-    parser.add_argument(
-        "--sources-folder",
-        help="Path to folder containing your collected sources"
-    )
-    
-    parser.add_argument(
-        "--out-file", "-f",
-        help="Output file path (default: prints to stdout)"
-    )
-    
-    parser.add_argument(
-        "--api-key",
-        help="Anthropic API key (or set ANTHROPIC_API_KEY env var)"
-    )
-    
-    parser.add_argument(
-        "--footer",
-        default="Published by Events Industry Intelligence",
-        help="Footer text for the newsletter"
-    )
-    
+
+    parser.add_argument("--output", "-o", choices=["html", "markdown", "md"], default="html",
+                        help="Output format (default: html)")
+    parser.add_argument("--days", "-d", type=int, default=7,
+                        help="How many days back to look for articles (default: 7)")
+    parser.add_argument("--stories", "-s", type=int, default=3,
+                        help="Number of main stories per section (default: 3)")
+    parser.add_argument("--title", "-t", default="The Second Curves Media & Events Brief",
+                        help="Newsletter title")
+    parser.add_argument("--sources-folder", help="Path to folder containing your collected sources")
+    parser.add_argument("--out-file", "-f", help="Output file path (default: prints to stdout)")
+    parser.add_argument("--api-key", help="Anthropic API key (or set ANTHROPIC_API_KEY env var)")
+    parser.add_argument("--footer", default="Published by Events Industry Intelligence",
+                        help="Footer text for the newsletter")
+
     args = parser.parse_args()
-    
     output_format = "markdown" if args.output == "md" else args.output
-    
+
     try:
         newsletter = generate_newsletter(
             days_back=args.days,
@@ -914,7 +1048,7 @@ Environment Variables:
             sources_folder=args.sources_folder,
             footer_text=args.footer
         )
-        
+
         if args.out_file:
             with open(args.out_file, "w", encoding="utf-8") as f:
                 f.write(newsletter)
@@ -924,10 +1058,10 @@ Environment Variables:
             print("NEWSLETTER OUTPUT:")
             print("=" * 60 + "\n")
             print(newsletter)
-            
+
     except ValueError as e:
         print(f"\n❌ Error: {e}")
-        exit(1)
+        raise
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
         raise
