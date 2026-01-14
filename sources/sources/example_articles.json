@@ -1,0 +1,24 @@
+[
+  {
+    "title": "Example Article - Replace With Your Own",
+    "source": "Your Source",
+    "content": "Article content goes here...",
+    "link": "https://example.com/article"
+  }
+]
+```
+4. Click **Commit changes**
+
+---
+
+### What Your Repo Should Look Like After
+```
+events-newsletter/
+├── events_newsletter_generator.py  ✓
+├── README.md                       ✓
+├── .github/
+│   └── workflows/
+│       └── newsletter.yml          ✓
+└── sources/
+    ├── README.md                   ✓
+    └── example_articles.json       ✓
