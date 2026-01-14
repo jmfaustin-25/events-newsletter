@@ -1,4 +1,4 @@
-# Events Industry Intelligence Newsletter
+# Second Curves : Media and Events Brief
 
 A professional newsletter generator for the **global B2B trade press, conferences, exhibitions, and events industry**.
 
