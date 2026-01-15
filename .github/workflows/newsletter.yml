@@ -153,13 +153,18 @@ jobs:
             EXCLUDE_ARG="--exclude ${{ github.event.inputs.exclude_articles }}"
           fi
           
+          LOGO_ARG=""
+          if [ -f "logo.jpg" ]; then
+            LOGO_ARG="--logo ./logo.jpg"
+          fi
+          
           python events_newsletter_generator.py \
             --days ${{ github.event.inputs.days_back || '7' }} \
             --stories ${{ github.event.inputs.stories_per_section || '3' }} \
             --recipient "${{ github.event.inputs.recipient_name || 'Reader' }}" \
             --output html \
             --out-file newsletter.html \
-            $SOURCES_ARG $INCLUDE_ARG $EXCLUDE_ARG
+            $SOURCES_ARG $INCLUDE_ARG $EXCLUDE_ARG $LOGO_ARG
           
           python events_newsletter_generator.py \
             --days ${{ github.event.inputs.days_back || '7' }} \
