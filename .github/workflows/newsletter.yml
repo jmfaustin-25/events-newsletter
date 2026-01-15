@@ -102,7 +102,7 @@ jobs:
           echo "Download \`article-list\` artifact for full details, or see preview below:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          head -100 article_list.txt >> $GITHUB_STEP_SUMMARY
+          head -100 article_list.html >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
