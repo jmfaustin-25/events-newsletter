@@ -189,7 +189,7 @@ SECTIONS = {
     }
 }
 
-# HTML Template - Axios style
+# HTML Template - Axios style with Second Curve Consulting branding
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -209,30 +209,44 @@ HTML_TEMPLATE = """
             line-height: 1.6;
             font-size: 16px;
         }
+        .logo-banner {
+            background: #7B8B70;
+            padding: 25px 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .logo-banner img {
+            max-width: 260px;
+            height: auto;
+        }
         .header {
-            border-bottom: 4px solid #1a1a1a;
-            padding-bottom: 15px;
+            background: #7B8B70;
+            padding: 0 20px 20px 20px;
             margin-bottom: 25px;
+            border-radius: 0 0 8px 8px;
+            text-align: center;
         }
         .header h1 {
-            font-size: 28px;
+            font-size: 22px;
             font-weight: 800;
             margin: 0 0 5px 0;
-            color: #1a1a1a;
+            color: #ffffff;
         }
         .header .tagline {
-            color: #666;
-            font-size: 14px;
-            margin-bottom: 5px;
+            color: rgba(255,255,255,0.85);
+            font-size: 13px;
+            margin-bottom: 8px;
         }
         .header .date {
-            font-size: 13px;
-            color: #888;
+            font-size: 12px;
+            color: rgba(255,255,255,0.7);
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
         .executive-summary {
             background: #f8f9fa;
-            border-left: 4px solid #c41e3a;
+            border-left: 4px solid #7B8B70;
             padding: 20px;
             margin-bottom: 30px;
         }
@@ -246,7 +260,7 @@ HTML_TEMPLATE = """
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: #c41e3a;
+            color: #5a6b52;
             margin: 20px 0 10px 0;
             padding-top: 15px;
             border-top: 1px solid #ddd;
@@ -270,7 +284,7 @@ HTML_TEMPLATE = """
         .section-header {
             display: flex;
             align-items: center;
-            border-bottom: 2px solid #1a1a1a;
+            border-bottom: 2px solid #7B8B70;
             padding-bottom: 8px;
             margin-bottom: 20px;
         }
@@ -287,12 +301,12 @@ HTML_TEMPLATE = """
         .sub-theme {
             font-size: 13px;
             font-weight: 700;
-            color: #c41e3a;
+            color: #5a6b52;
             text-transform: uppercase;
             letter-spacing: 1px;
             margin: 20px 0 12px 0;
             padding-bottom: 5px;
-            border-bottom: 1px dashed #c41e3a;
+            border-bottom: 1px dashed #7B8B70;
         }
         .story {
             margin-bottom: 25px;
@@ -317,7 +331,7 @@ HTML_TEMPLATE = """
         }
         .story .label {
             font-weight: 700;
-            color: #c41e3a;
+            color: #5a6b52;
             font-size: 12px;
             text-transform: uppercase;
             display: block;
@@ -334,7 +348,7 @@ HTML_TEMPLATE = """
         }
         .story .source-link {
             font-size: 12px;
-            color: #c41e3a;
+            color: #5a6b52;
             text-decoration: none;
             font-weight: 600;
         }
@@ -342,12 +356,16 @@ HTML_TEMPLATE = """
             text-decoration: underline;
         }
         .footer {
+            background: #7B8B70;
             margin-top: 40px;
-            padding-top: 20px;
-            border-top: 2px solid #1a1a1a;
+            padding: 20px;
+            border-radius: 8px;
             text-align: center;
             font-size: 12px;
-            color: #888;
+            color: rgba(255,255,255,0.8);
+        }
+        .footer a {
+            color: #ffffff;
         }
         .no-stories {
             color: #888;
@@ -356,6 +374,13 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
+    <div class="logo-banner">
+        {% if logo_url %}
+        <img src="{{ logo_url }}" alt="Second Curve Consulting">
+        {% else %}
+        <div style="color: white; font-size: 24px; font-weight: bold;">SECOND CURVE CONSULTING</div>
+        {% endif %}
+    </div>
     <div class="header">
         <h1>{{ title }}</h1>
         <div class="tagline">Intelligence for the global B2B media, exhibitions & events industry</div>
@@ -411,7 +436,8 @@ HTML_TEMPLATE = """
     {% endfor %}
     
     <div class="footer">
-        {{ footer_text | default('Published by Second Curves') }}
+        {{ footer_text | default('Published by Second Curve Consulting') }}<br>
+        <a href="https://secondcurveconsulting.com">secondcurveconsulting.com</a>
     </div>
 </body>
 </html>
@@ -883,7 +909,8 @@ def render_newsletter(
     output_format: str = "html",
     title: str = "The Second Curves Media & Events Brief",
     footer_text: str = None,
-    executive_summary: str = None
+    executive_summary: str = None,
+    logo_url: str = None
 ) -> str:
     """Render the newsletter content to HTML or Markdown."""
     from jinja2 import Template
@@ -892,6 +919,13 @@ def render_newsletter(
     template = Template(template_str)
     
     return template.render(
+        title=title,
+        date=datetime.now().strftime("%d %B %Y"),
+        executive_summary=executive_summary,
+        sections=content.get("sections", {}),
+        footer_text=footer_text,
+        logo_url=logo_url
+    )
         title=title,
         date=datetime.now().strftime("%d %B %Y"),
         executive_summary=executive_summary,
@@ -912,7 +946,8 @@ def generate_newsletter(
     recipient_name: str = "Reader",
     list_articles_only: bool = False,
     include_articles: Optional[List[int]] = None,
-    exclude_articles: Optional[List[int]] = None
+    exclude_articles: Optional[List[int]] = None,
+    logo_url: Optional[str] = None
 ) -> str:
     """Main function to generate a complete newsletter."""
     
@@ -972,7 +1007,8 @@ def generate_newsletter(
         output_format, 
         title, 
         footer_text,
-        exec_summary
+        exec_summary,
+        logo_url
     )
     
     total_stories = sum(len(s.get("stories", [])) for s in content["sections"].values())
@@ -1001,11 +1037,12 @@ def main():
     parser.add_argument("--sources-folder", help="Path to sources folder")
     parser.add_argument("--out-file", "-f", help="Output file path")
     parser.add_argument("--api-key", help="Anthropic API key")
-    parser.add_argument("--footer", default="Published by Second Curves")
+    parser.add_argument("--footer", default="Published by Second Curve Consulting")
     parser.add_argument("--recipient", default="Reader", help="Recipient name for greeting")
     parser.add_argument("--list-articles", action="store_true", help="List all articles for review (no newsletter)")
     parser.add_argument("--include", type=str, help="Article numbers to include (comma-separated)")
     parser.add_argument("--exclude", type=str, help="Article numbers to exclude (comma-separated)")
+    parser.add_argument("--logo", type=str, help="URL to logo image (or path if using assets folder)")
     
     args = parser.parse_args()
     
@@ -1026,7 +1063,8 @@ def main():
             recipient_name=args.recipient,
             list_articles_only=args.list_articles,
             include_articles=include_articles,
-            exclude_articles=exclude_articles
+            exclude_articles=exclude_articles,
+            logo_url=args.logo
         )
         
         if args.out_file:
