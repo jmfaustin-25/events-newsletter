@@ -54,7 +54,11 @@ RSS_FEEDS = {
     "BizBash": "https://www.bizbash.com/rss.xml",
     "Skift Meetings": "https://skift.com/meetings/feed/",
 }
-
+RSS_FEEDS = {
+    # Exhibition & Events Industry
+    "UFI Blog": "https://www.ufi.org/blog/feed/",  # ← ADD THIS LINE
+    "Exhibition World": "https://www.exhibitionworld.co.uk/feed",
+    ...
 # Section definitions
 SECTIONS = {
     "market_signals": {
